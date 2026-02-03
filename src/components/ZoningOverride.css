@@ -1,0 +1,113 @@
+.zoning-override {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+}
+
+.override-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.override-header h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.override-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #ebf8ff;
+  color: var(--info);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.override-description {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.zoning-select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234a5568' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.zoning-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.zoning-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.zoning-select optgroup {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.zoning-select option {
+  font-weight: 400;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+}
+
+.select-spinner {
+  position: absolute;
+  right: 36px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.override-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px;
+  background: #ebf8ff;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--info);
+  line-height: 1.4;
+}
+
+.override-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}

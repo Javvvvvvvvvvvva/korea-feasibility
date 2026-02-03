@@ -1,0 +1,165 @@
+.zoning-info {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.zoning-info.loading {
+  min-height: 200px;
+}
+
+.zoning-badge {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border: 2px solid;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
+
+.badge-category {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.badge-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.regulations-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.regulation-card {
+  background: var(--background);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.regulation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.regulation-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.confidence-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.confidence-high {
+  background: #c6f6d5;
+  color: #276749;
+}
+
+.confidence-medium {
+  background: #fefcbf;
+  color: #975a16;
+}
+
+.confidence-low {
+  background: #fed7d7;
+  color: #c53030;
+}
+
+.confidence-unknown {
+  background: #e2e8f0;
+  color: #4a5568;
+}
+
+.regulation-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.regulation-usage {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.usage-bar {
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.regulation-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.massing-summary {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.massing-summary h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.legal-basis {
+  margin-top: 12px;
+  padding: 8px;
+  background: #ebf8ff;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.legal-label {
+  color: var(--info);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.legal-text {
+  color: var(--text-secondary);
+}

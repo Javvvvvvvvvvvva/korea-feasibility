@@ -1,0 +1,131 @@
+.error-panel {
+  background: #fff5f5;
+  border: 1px solid #fc8181;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.error-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.error-icon {
+  width: 36px;
+  height: 36px;
+  background: #fed7d7;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #c53030;
+}
+
+.error-title-content {
+  flex: 1;
+}
+
+.error-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #c53030;
+  margin-bottom: 4px;
+}
+
+.error-description {
+  font-size: 12px;
+  color: #742a2a;
+  line-height: 1.4;
+}
+
+.error-suggestions {
+  background: white;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.error-suggestions h4 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.error-suggestions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.error-suggestions li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  padding-left: 20px;
+  position: relative;
+  line-height: 1.4;
+}
+
+.error-suggestions li::before {
+  content: '•';
+  position: absolute;
+  left: 6px;
+  color: var(--primary);
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.recovery-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.recovery-button:hover {
+  background: var(--primary-light);
+}
+
+.error-debug {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #feb2b2;
+}
+
+.error-debug summary {
+  font-size: 10px;
+  color: #9b2c2c;
+  cursor: pointer;
+  user-select: none;
+}
+
+.error-debug summary:hover {
+  text-decoration: underline;
+}
+
+.error-debug pre {
+  margin-top: 8px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #742a2a;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
