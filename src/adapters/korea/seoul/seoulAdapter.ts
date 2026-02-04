@@ -352,6 +352,14 @@ export class SeoulCityAdapter implements ICityAdapter {
     coordinates: [number, number],
     jibunAddress?: JibunAddress
   ): KoreaParcel {
+    // IMPORTANT: jibunAddress must be provided with valid district
+    // No fallback to hardcoded district - this prevents the Gangnam-gu bug
+    if (!jibunAddress || !jibunAddress.sigungu) {
+      throw new Error(
+        '주소에서 구(區) 정보를 추출할 수 없습니다. 전체 주소를 입력해 주세요. 예: 서울특별시 마포구 합정동 123'
+      )
+    }
+
     // Generate realistic Seoul parcel dimensions
     // Typical urban lot: 15-25m x 20-35m
     const widthDeg = 0.0002 // ~17m
@@ -376,20 +384,12 @@ export class SeoulCityAdapter implements ICityAdapter {
 
     const area = calculateAreaFromGeometry(geometry)
 
-    // Generate PNU
+    // Generate PNU using the provided jibunAddress (no fallback)
     const pnu = this.generatePNU(jibunAddress)
-
-    const defaultJibun: JibunAddress = jibunAddress || {
-      sido: '서울특별시',
-      sigungu: '강남구',
-      eupmyeondong: '역삼동',
-      bonbun: 1,
-      isSan: false,
-    }
 
     return {
       pnu,
-      jibunAddress: defaultJibun,
+      jibunAddress,
       geometry,
       area: Math.round(area * 100) / 100,
       landUse: {
@@ -405,12 +405,19 @@ export class SeoulCityAdapter implements ICityAdapter {
     }
   }
 
-  private generatePNU(jibunAddress?: JibunAddress): PNU {
-    const district = jibunAddress?.sigungu || '강남구'
-    const districtCode = SEOUL_DISTRICT_CODES[district]?.code || '680'
+  private generatePNU(jibunAddress: JibunAddress): PNU {
+    // jibunAddress is now required - no fallback to Gangnam-gu
+    const district = jibunAddress.sigungu
+    const districtInfo = SEOUL_DISTRICT_CODES[district]
 
-    const bonbun = jibunAddress?.bonbun?.toString() || '1'
-    const bubun = jibunAddress?.bubun?.toString() || '0'
+    if (!districtInfo) {
+      throw new Error(`알 수 없는 구: "${district}". 서울시 25개 구 중 하나를 입력해 주세요.`)
+    }
+
+    const districtCode = districtInfo.code
+
+    const bonbun = jibunAddress.bonbun?.toString() || '1'
+    const bubun = jibunAddress.bubun?.toString() || '0'
 
     const full = buildPNU({
       sido: '11',
@@ -419,7 +426,7 @@ export class SeoulCityAdapter implements ICityAdapter {
       ri: '00',
       bonbun: bonbun.padStart(4, '0'),
       bubun: bubun.padStart(4, '0'),
-      sanType: jibunAddress?.isSan ? '2' : '1',
+      sanType: jibunAddress.isSan ? '2' : '1',
     })
 
     return {
@@ -430,7 +437,7 @@ export class SeoulCityAdapter implements ICityAdapter {
       ri: '00',
       bonbun: bonbun.padStart(4, '0'),
       bubun: bubun.padStart(4, '0'),
-      sanType: jibunAddress?.isSan ? '2' : '1',
+      sanType: jibunAddress.isSan ? '2' : '1',
     }
   }
 
