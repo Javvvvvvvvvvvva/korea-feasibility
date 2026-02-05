@@ -3,17 +3,16 @@
  * 서울특별시 어댑터 구현
  *
  * Implements ICityAdapter for Seoul Metropolitan City.
- * Version: v1 (mock data with pattern-based inference)
+ * Version: v2 (VWorld API with mock fallback)
  *
- * Data Sources (v1):
+ * Data Sources:
+ * - Parcel: VWorld API (primary), mock data (fallback)
+ * - Zoning: VWorld API (primary), district-based inference (fallback)
  * - Address: Pattern-based parsing
- * - Parcel: Mock rectangular geometry
- * - Zoning: District-based inference
  *
- * Future (v2+):
- * - VWORLD API for parcel data
- * - LURIS API for zoning
- * - Kakao/Naver for geocoding
+ * API Integration:
+ * - VWorld Data API 2.0 for 연속지적도 (cadastral polygons)
+ * - VWorld WFS for coordinate-based parcel lookup
  */
 
 import type {
@@ -41,6 +40,8 @@ import {
 
 import type { ZoningCode } from '../../../domain/korea/zoning'
 import { SEOUL_REGULATIONS, getRegulations } from '../../../domain/korea/regulations'
+
+import { getVWorldClient, isVWorldAvailable } from '../api'
 
 /**
  * Seoul District to typical zoning mapping
@@ -220,7 +221,17 @@ export class SeoulCityAdapter implements ICityAdapter {
       jibunAddress = addressOrCoords.jibunAddress
     }
 
-    // Generate mock parcel
+    // Try VWorld API first if available
+    if (isVWorldAvailable()) {
+      const vworldResult = await this.fetchParcelFromVWorld(coordinates, jibunAddress)
+      if (vworldResult.success) {
+        return vworldResult
+      }
+      // Log the error but continue to fallback
+      console.warn('VWorld API failed, falling back to mock data:', vworldResult.error)
+    }
+
+    // Fallback to mock parcel
     const parcel = this.generateMockParcel(coordinates, jibunAddress)
 
     return {
@@ -231,11 +242,72 @@ export class SeoulCityAdapter implements ICityAdapter {
     }
   }
 
-  async resolveZoning(parcel: KoreaParcel): Promise<ZoningResolutionResult> {
-    // Get district from address
-    const district = parcel.jibunAddress.sigungu
+  /**
+   * Fetch parcel from VWorld API
+   */
+  private async fetchParcelFromVWorld(
+    coordinates: [number, number],
+    jibunAddress?: JibunAddress
+  ): Promise<ParcelFetchResult> {
+    const client = getVWorldClient()
+    if (!client) {
+      return {
+        success: false,
+        source: 'mock',
+        confidence: 'estimated',
+        error: 'VWorld client not available',
+      }
+    }
 
-    // Look up typical zoning for district
+    try {
+      // Try coordinate-based lookup
+      const result = await client.fetchParcelByCoordinates(coordinates[0], coordinates[1])
+
+      if (result.success && result.parcel) {
+        // Merge jibunAddress if provided (more reliable than API parsing)
+        if (jibunAddress) {
+          result.parcel.jibunAddress = {
+            ...result.parcel.jibunAddress,
+            ...jibunAddress,
+          }
+        }
+
+        return {
+          success: true,
+          parcel: result.parcel,
+          source: 'api',
+          confidence: 'official',
+        }
+      }
+
+      return {
+        success: false,
+        source: 'api',
+        confidence: 'estimated',
+        error: result.error || 'No parcel found at coordinates',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        source: 'mock',
+        confidence: 'estimated',
+        error: error instanceof Error ? error.message : 'VWorld API error',
+      }
+    }
+  }
+
+  async resolveZoning(parcel: KoreaParcel): Promise<ZoningResolutionResult> {
+    // Try VWorld API first if available
+    if (isVWorldAvailable()) {
+      const vworldResult = await this.resolveZoningFromVWorld(parcel)
+      if (vworldResult.success) {
+        return vworldResult
+      }
+      console.warn('VWorld zoning lookup failed, falling back to inference:', vworldResult.error)
+    }
+
+    // Fallback to district-based inference
+    const district = parcel.jibunAddress.sigungu
     const zoningCode = DISTRICT_ZONING_MAP[district] || 'R2G'
     const regulations = SEOUL_REGULATIONS[zoningCode]
 
@@ -246,6 +318,71 @@ export class SeoulCityAdapter implements ICityAdapter {
       method: 'inference',
       confidence: 'medium',
       overlays: [],
+    }
+  }
+
+  /**
+   * Resolve zoning from VWorld API
+   */
+  private async resolveZoningFromVWorld(parcel: KoreaParcel): Promise<ZoningResolutionResult> {
+    const client = getVWorldClient()
+    if (!client) {
+      return {
+        success: false,
+        method: 'inference',
+        confidence: 'low',
+        error: 'VWorld client not available',
+      }
+    }
+
+    try {
+      // Get center coordinates from parcel geometry
+      const coords = parcel.geometry.coordinates[0]
+      const centerLng = coords.reduce((sum, c) => sum + c[0], 0) / coords.length
+      const centerLat = coords.reduce((sum, c) => sum + c[1], 0) / coords.length
+
+      const result = await client.fetchZoningByCoordinates(centerLng, centerLat)
+
+      if (result.success && result.zoningCode) {
+        // Validate the zoning code is one we recognize
+        const zoningCode = result.zoningCode as ZoningCode
+        const regulations = SEOUL_REGULATIONS[zoningCode]
+
+        if (regulations) {
+          return {
+            success: true,
+            zoningCode,
+            zoningName: result.zoningName || this.getZoningKoreanName(zoningCode),
+            method: 'api',
+            confidence: 'high',
+            overlays: [],
+          }
+        }
+
+        // If zoning code not in our DB, return with unknown confidence
+        return {
+          success: true,
+          zoningCode,
+          zoningName: result.zoningName,
+          method: 'api',
+          confidence: 'medium',
+          overlays: [],
+        }
+      }
+
+      return {
+        success: false,
+        method: 'api',
+        confidence: 'low',
+        error: result.error || 'No zoning data found',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        method: 'api',
+        confidence: 'low',
+        error: error instanceof Error ? error.message : 'VWorld API error',
+      }
     }
   }
 
