@@ -1,8 +1,8 @@
 import { useFeasibilityStore } from '../stores/feasibilityStore'
-import { isVWorldAvailable } from '../adapters/korea/api'
+import { isVWorldAvailable, isDataGoKrAvailable } from '../adapters/korea/api'
 import './DataSourcePanel.css'
 
-type SourceStatus = 'active' | 'simulated' | 'unavailable'
+type SourceStatus = 'active' | 'simulated' | 'unavailable' | 'error' | 'needs_key'
 type SourceType = 'api' | 'calculated' | 'hardcoded'
 
 interface DataSource {
@@ -24,6 +24,7 @@ interface DataCategory {
  */
 function getDataSources(): Record<string, DataCategory> {
   const vworldAvailable = isVWorldAvailable()
+  const dataGoKrAvailable = isDataGoKrAvailable()
 
   return {
     address: {
@@ -46,11 +47,20 @@ function getDataSources(): Record<string, DataCategory> {
         {
           name: '연속지적도 (VWorld)',
           type: 'api',
-          status: vworldAvailable ? 'active' : 'simulated',
+          status: vworldAvailable ? 'active' : 'needs_key',
           note: vworldAvailable
-            ? 'VWorld WFS API로 실제 필지 폴리곤 조회 중'
-            : 'VWorld API 키 미설정 - 직사각형 필지로 대체',
+            ? 'VWorld Data API 2.0으로 실제 필지 폴리곤 조회 중'
+            : 'VITE_VWORLD_API_KEY 환경변수 설정 필요',
           realSource: 'api.vworld.kr (LP_PA_CBND_BUBUN)',
+        },
+        {
+          name: '연속지적도 (data.go.kr)',
+          type: 'api',
+          status: dataGoKrAvailable ? 'active' : 'needs_key',
+          note: dataGoKrAvailable
+            ? 'data.go.kr WFS API로 실제 필지 폴리곤 조회 가능'
+            : 'VITE_DATA_GO_KR_API_KEY 환경변수 설정 필요',
+          realSource: 'apis.data.go.kr/1611000/nsdi/CadastralService',
         },
       ],
     },
@@ -61,18 +71,20 @@ function getDataSources(): Record<string, DataCategory> {
         {
           name: '도시지역 (VWorld)',
           type: 'api',
-          status: vworldAvailable ? 'active' : 'simulated',
+          status: vworldAvailable ? 'active' : 'needs_key',
           note: vworldAvailable
             ? 'VWorld WFS API로 실제 용도지역 조회 중'
-            : 'VWorld API 키 미설정 - 구별 추정값 사용',
+            : 'VITE_VWORLD_API_KEY 환경변수 설정 필요',
           realSource: 'api.vworld.kr (LT_C_UQ111)',
         },
         {
-          name: '구역별 추정 (대체)',
-          type: 'calculated',
-          status: vworldAvailable ? 'unavailable' : 'active',
-          note: '서울시 25개 구별 대표 용도지역 적용',
-          realSource: '서울시 도시계획포털',
+          name: '토지이용규제정보 (data.go.kr)',
+          type: 'api',
+          status: dataGoKrAvailable ? 'active' : 'needs_key',
+          note: dataGoKrAvailable
+            ? 'LuArinfoService API로 실제 규제정보 조회 가능'
+            : 'VITE_DATA_GO_KR_API_KEY 환경변수 설정 필요',
+          realSource: 'apis.data.go.kr/1611000/LuArinfoService',
         },
       ],
     },
@@ -81,9 +93,18 @@ function getDataSources(): Record<string, DataCategory> {
       description: '용적률, 건폐율, 높이제한',
       sources: [
         {
-          name: '서울시 조례',
+          name: '토지이용규제정보서비스',
+          type: 'api',
+          status: dataGoKrAvailable ? 'active' : 'needs_key',
+          note: dataGoKrAvailable
+            ? 'PNU 기반 실제 행위제한 정보 조회'
+            : 'VITE_DATA_GO_KR_API_KEY 환경변수 설정 필요',
+          realSource: 'apis.data.go.kr/1611000/LuArinfoService',
+        },
+        {
+          name: '서울시 조례 (대체)',
           type: 'hardcoded',
-          status: 'active',
+          status: dataGoKrAvailable ? 'unavailable' : 'active',
           note: '2023년 기준 서울시 도시계획 조례 반영',
           realSource: '서울특별시 도시계획 조례 제54조, 제55조',
         },
@@ -122,11 +143,15 @@ function getDataSources(): Record<string, DataCategory> {
 function getStatusBadge(status: SourceStatus) {
   switch (status) {
     case 'active':
-      return { label: '적용', className: 'status-active' }
+      return { label: 'OK', className: 'status-active' }
     case 'simulated':
       return { label: '모의', className: 'status-simulated' }
     case 'unavailable':
-      return { label: '미연결', className: 'status-unavailable' }
+      return { label: '미사용', className: 'status-unavailable' }
+    case 'error':
+      return { label: '오류', className: 'status-error' }
+    case 'needs_key':
+      return { label: 'API 키 필요', className: 'status-needs-key' }
   }
 }
 
@@ -145,6 +170,8 @@ function DataSourcePanel() {
   const { status } = useFeasibilityStore()
   const dataSources = getDataSources()
   const vworldAvailable = isVWorldAvailable()
+  const dataGoKrAvailable = isDataGoKrAvailable()
+  const anyApiConnected = vworldAvailable || dataGoKrAvailable
 
   if (status !== 'complete') return null
 
@@ -167,8 +194,14 @@ function DataSourcePanel() {
           <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
         </svg>
         데이터 출처
-        {vworldAvailable && (
-          <span className="api-connected-badge">API 연결됨</span>
+        {anyApiConnected && (
+          <span className="api-connected-badge">
+            {vworldAvailable && dataGoKrAvailable
+              ? 'VWorld + data.go.kr 연결'
+              : vworldAvailable
+              ? 'VWorld 연결'
+              : 'data.go.kr 연결'}
+          </span>
         )}
       </h3>
 
@@ -258,9 +291,14 @@ function DataSourcePanel() {
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
         <span>
-          {vworldAvailable
-            ? 'VWorld API가 연결되어 실제 필지 및 용도지역 데이터를 사용합니다.'
-            : '\'모의\' 상태의 데이터는 실제 API 연동 전까지 추정값을 사용합니다. .env 파일에 VITE_VWORLD_API_KEY를 설정하세요.'}
+          {anyApiConnected
+            ? `실제 데이터 API 연결됨: ${[
+                vworldAvailable && 'VWorld (필지/용도지역)',
+                dataGoKrAvailable && 'data.go.kr (규제정보)',
+              ]
+                .filter(Boolean)
+                .join(', ')}`
+            : '\'API 키 필요\' 상태의 데이터 소스를 사용하려면 .env 파일에 VITE_VWORLD_API_KEY 또는 VITE_DATA_GO_KR_API_KEY를 설정하세요.'}
         </span>
       </div>
     </div>

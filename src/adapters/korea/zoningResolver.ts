@@ -60,6 +60,19 @@ const CODE_TO_CATEGORY: Record<ZoningCode, ZoningCategory> = {
 }
 
 /**
+ * Custom error for zoning resolution failures that require manual override
+ */
+export class ZoningResolutionError extends Error {
+  constructor(
+    message: string,
+    public readonly requiresManualOverride: boolean = false
+  ) {
+    super(message)
+    this.name = 'ZoningResolutionError'
+  }
+}
+
+/**
  * Resolve zoning information for a parcel
  * Returns legacy ZoningInfo type for backward compatibility
  */
@@ -71,7 +84,10 @@ export async function resolveZoning(parcel: Parcel): Promise<ZoningInfo> {
   const result = await seoulAdapter.resolveZoning(koreaParcel)
 
   if (!result.success || !result.zoningCode) {
-    throw new Error(result.error || '용도지역을 확인할 수 없습니다.')
+    throw new ZoningResolutionError(
+      result.error || '용도지역을 확인할 수 없습니다. 용도지역을 수동으로 선택해 주세요.',
+      true // Indicates manual override is needed
+    )
   }
 
   // Get full regulations

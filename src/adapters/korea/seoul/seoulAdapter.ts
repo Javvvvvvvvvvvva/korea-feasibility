@@ -41,7 +41,12 @@ import {
 import type { ZoningCode } from '../../../domain/korea/zoning'
 import { SEOUL_REGULATIONS, getRegulations } from '../../../domain/korea/regulations'
 
-import { getVWorldClient, isVWorldAvailable } from '../api'
+import {
+  getVWorldClient,
+  isVWorldAvailable,
+  getDataGoKrClient,
+  isDataGoKrAvailable,
+} from '../api'
 
 /**
  * Seoul District to typical zoning mapping
@@ -228,17 +233,89 @@ export class SeoulCityAdapter implements ICityAdapter {
         return vworldResult
       }
       // Log the error but continue to fallback
-      console.warn('VWorld API failed, falling back to mock data:', vworldResult.error)
+      console.warn('VWorld API failed, trying data.go.kr:', vworldResult.error)
     }
 
-    // Fallback to mock parcel
-    const parcel = this.generateMockParcel(coordinates, jibunAddress)
+    // Try data.go.kr API as secondary source
+    if (isDataGoKrAvailable() && jibunAddress) {
+      const dataGoKrResult = await this.fetchParcelFromDataGoKr(coordinates, jibunAddress)
+      if (dataGoKrResult.success) {
+        return dataGoKrResult
+      }
+      console.warn('data.go.kr API failed, falling back to mock data:', dataGoKrResult.error)
+    }
 
+    // Fallback to mock parcel (only if APIs not available)
+    if (!isVWorldAvailable() && !isDataGoKrAvailable()) {
+      const parcel = this.generateMockParcel(coordinates, jibunAddress)
+      return {
+        success: true,
+        parcel,
+        source: 'mock',
+        confidence: 'estimated',
+      }
+    }
+
+    // Both APIs available but failed - return error instead of mock
     return {
-      success: true,
-      parcel,
-      source: 'mock',
+      success: false,
+      source: 'api',
       confidence: 'estimated',
+      error: '실제 필지 데이터를 가져오지 못했습니다. 주소를 확인하거나 수동으로 입력해 주세요.',
+    }
+  }
+
+  /**
+   * Fetch parcel from data.go.kr API
+   */
+  private async fetchParcelFromDataGoKr(
+    coordinates: [number, number],
+    jibunAddress?: JibunAddress
+  ): Promise<ParcelFetchResult> {
+    const client = getDataGoKrClient()
+    if (!client) {
+      return {
+        success: false,
+        source: 'mock',
+        confidence: 'estimated',
+        error: 'data.go.kr client not available',
+      }
+    }
+
+    try {
+      // Try coordinate-based lookup
+      const result = await client.fetchParcelByCoordinates(coordinates[0], coordinates[1])
+
+      if (result.success && result.parcel) {
+        // Merge jibunAddress if provided (more reliable than API parsing)
+        if (jibunAddress) {
+          result.parcel.jibunAddress = {
+            ...result.parcel.jibunAddress,
+            ...jibunAddress,
+          }
+        }
+
+        return {
+          success: true,
+          parcel: result.parcel,
+          source: 'api',
+          confidence: 'official',
+        }
+      }
+
+      return {
+        success: false,
+        source: 'api',
+        confidence: 'estimated',
+        error: result.error || 'No parcel found at coordinates',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        source: 'mock',
+        confidence: 'estimated',
+        error: error instanceof Error ? error.message : 'data.go.kr API error',
+      }
     }
   }
 
@@ -303,21 +380,109 @@ export class SeoulCityAdapter implements ICityAdapter {
       if (vworldResult.success) {
         return vworldResult
       }
-      console.warn('VWorld zoning lookup failed, falling back to inference:', vworldResult.error)
+      console.warn('VWorld zoning lookup failed, trying data.go.kr:', vworldResult.error)
     }
 
-    // Fallback to district-based inference
-    const district = parcel.jibunAddress.sigungu
-    const zoningCode = DISTRICT_ZONING_MAP[district] || 'R2G'
-    const regulations = SEOUL_REGULATIONS[zoningCode]
+    // Try data.go.kr regulation service
+    if (isDataGoKrAvailable()) {
+      const dataGoKrResult = await this.resolveZoningFromDataGoKr(parcel)
+      if (dataGoKrResult.success) {
+        return dataGoKrResult
+      }
+      console.warn('data.go.kr zoning lookup failed:', dataGoKrResult.error)
+    }
 
+    // No API available or all APIs failed
+    // Instead of returning hardcoded data, return an error with guidance
+    if (!isVWorldAvailable() && !isDataGoKrAvailable()) {
+      // APIs not configured - use district inference with warning
+      const district = parcel.jibunAddress.sigungu
+      const zoningCode = DISTRICT_ZONING_MAP[district]
+
+      if (zoningCode) {
+        return {
+          success: true,
+          zoningCode,
+          zoningName: this.getZoningKoreanName(zoningCode),
+          method: 'inference',
+          confidence: 'low',
+          overlays: [],
+        }
+      }
+    }
+
+    // APIs configured but failed - return error prompting manual override
     return {
-      success: true,
-      zoningCode,
-      zoningName: regulations ? this.getZoningKoreanName(zoningCode) : '제2종일반주거지역',
-      method: 'inference',
-      confidence: 'medium',
-      overlays: [],
+      success: false,
+      method: 'api',
+      confidence: 'low',
+      error: '용도지역 정보를 가져올 수 없습니다. 용도지역을 수동으로 선택해 주세요.',
+    }
+  }
+
+  /**
+   * Resolve zoning from data.go.kr LuArinfo API
+   */
+  private async resolveZoningFromDataGoKr(parcel: KoreaParcel): Promise<ZoningResolutionResult> {
+    const client = getDataGoKrClient()
+    if (!client) {
+      return {
+        success: false,
+        method: 'inference',
+        confidence: 'low',
+        error: 'data.go.kr client not available',
+      }
+    }
+
+    try {
+      const result = await client.fetchRegulationsByPNU(parcel.pnu.full)
+
+      if (result.success && result.zoningCode) {
+        const zoningCode = result.zoningCode as ZoningCode
+        const regulations = SEOUL_REGULATIONS[zoningCode]
+
+        if (regulations) {
+          return {
+            success: true,
+            zoningCode,
+            zoningName: result.zoningName || this.getZoningKoreanName(zoningCode),
+            method: 'api',
+            confidence: 'high',
+            overlays: result.regulations
+              ?.filter(r => !r.code.startsWith('UQA')) // Filter out the primary zone
+              .map(r => ({
+                type: 'OTHER' as const,
+                name: r.name,
+                restrictions: r.legalBasis ? [r.legalBasis] : undefined,
+                source: 'data.go.kr LuArinfoService',
+              })) || [],
+          }
+        }
+
+        // Zoning code not in our DB but API returned data
+        return {
+          success: true,
+          zoningCode,
+          zoningName: result.zoningName,
+          method: 'api',
+          confidence: 'medium',
+          overlays: [],
+        }
+      }
+
+      return {
+        success: false,
+        method: 'api',
+        confidence: 'low',
+        error: result.error || 'No zoning data found',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        method: 'api',
+        confidence: 'low',
+        error: error instanceof Error ? error.message : 'data.go.kr API error',
+      }
     }
   }
 

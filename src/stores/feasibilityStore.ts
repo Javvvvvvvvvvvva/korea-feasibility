@@ -12,6 +12,7 @@ import {
   resolveZoning,
   resolveZoningWithOverride,
   getAvailableZoningTypes,
+  ZoningResolutionError,
 } from '../adapters/korea/zoningResolver'
 import { calculateMassing } from '../domain/massingCalculator'
 import { generateConfidenceReport } from '../domain/confidenceReporter'
@@ -30,6 +31,7 @@ interface FeasibilityStore {
   // Manual zoning override
   manualZoningCode: ZoningCode | null
   availableZoningTypes: Array<{ code: ZoningCode; name: string; category: string }>
+  zoningRequiresManualSelection: boolean // True when API fails and user must select
 
   // Actions
   setAddress: (address: string) => void
@@ -49,6 +51,7 @@ const initialState = {
   error: null,
   manualZoningCode: null,
   availableZoningTypes: getAvailableZoningTypes(),
+  zoningRequiresManualSelection: false,
 }
 
 export const useFeasibilityStore = create<FeasibilityStore>((set, get) => ({
@@ -74,10 +77,29 @@ export const useFeasibilityStore = create<FeasibilityStore>((set, get) => ({
       // Step 3: Resolve zoning information
       set({ status: 'resolving_zoning' })
       const { manualZoningCode } = get()
-      const zoning = manualZoningCode
-        ? await resolveZoningWithOverride(parcel, manualZoningCode)
-        : await resolveZoning(parcel)
-      set({ zoning })
+
+      let zoning: ZoningInfo
+      try {
+        zoning = manualZoningCode
+          ? await resolveZoningWithOverride(parcel, manualZoningCode)
+          : await resolveZoning(parcel)
+        set({ zoning, zoningRequiresManualSelection: false })
+      } catch (zoningError) {
+        if (
+          zoningError instanceof ZoningResolutionError &&
+          zoningError.requiresManualOverride
+        ) {
+          // Zoning API failed - prompt user to select manually
+          set({
+            status: 'resolving_zoning',
+            zoningRequiresManualSelection: true,
+            error: zoningError.message,
+          })
+          // Don't throw - let UI handle manual selection
+          return
+        }
+        throw zoningError
+      }
 
       // Step 4: Calculate massing
       set({ status: 'calculating_massing' })
