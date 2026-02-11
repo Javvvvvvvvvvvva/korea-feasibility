@@ -64,6 +64,36 @@ export interface ParsedRegulation {
   isConflicting: boolean
 }
 
+export interface LandUsePermissionResult {
+  success: boolean
+  permitted?: boolean
+  permissionType?: 'allowed' | 'conditional' | 'prohibited' | 'unknown'
+  conditions?: string[]
+  legalBasis?: string
+  error?: string
+  source: 'DATA_GO_KR'
+  rawResponse?: unknown
+}
+
+export interface LandUseActivityInfo {
+  activityName: string
+  activityCode?: string
+  permitted: boolean
+  permissionType: 'allowed' | 'conditional' | 'prohibited' | 'unknown'
+  conditions: string[]
+  legalBasis?: string
+}
+
+export interface ZonePermissionsResult {
+  success: boolean
+  zoneName?: string
+  zoneCode?: string
+  activities?: LandUseActivityInfo[]
+  error?: string
+  source: 'DATA_GO_KR'
+  rawResponse?: unknown
+}
+
 export type DataSourceStatus = 'OK' | 'ERROR' | 'NEEDS_KEY' | 'UNSUPPORTED' | 'LOADING'
 
 export interface DataSourceHealth {
@@ -89,6 +119,12 @@ const REGULATION_ENDPOINT = '/attr/getLuArinfoAttrList'
 // 토지이용계획정보서비스 (reserved for future use)
 // const LAND_USE_PLAN_BASE = 'http://apis.data.go.kr/1611000/nsdi/LandUseService'
 // const LAND_USE_PLAN_ENDPOINT = '/wms/getLandUseWMS'
+
+// 토지이용규제행위제한조회서비스 (arLandUseInfoService)
+// Checks what activities are permitted in specific zoning districts
+const AR_LAND_USE_INFO_BASE = 'https://apis.data.go.kr/1613000/arLandUseInfoService'
+const AR_LAND_USE_INFO_ENDPOINT = '/DTarLandUseInfo'
+// Reserved for future: const AR_LAND_USE_SEARCH_ENDPOINT = '/DTsearchLunCd'
 
 // 지목 코드 매핑
 const JIMOK_CODE_MAP: Record<string, LandCategory> = {
@@ -160,6 +196,71 @@ const ZONE_NAME_MAP: Record<string, string> = {
   '보전녹지지역': 'GC',
   '생산녹지지역': 'GP',
   '자연녹지지역': 'GN',
+}
+
+// 내부 코드 → API 용도지역 코드 (역매핑)
+const INTERNAL_TO_UCODE_MAP: Record<string, string> = {
+  'R1E': 'UQA100', // 제1종전용주거지역
+  'R2E': 'UQA110', // 제2종전용주거지역
+  'R1G': 'UQA120', // 제1종일반주거지역
+  'R2G': 'UQA130', // 제2종일반주거지역
+  'R3G': 'UQA140', // 제3종일반주거지역
+  'RSR': 'UQA150', // 준주거지역
+  'CC': 'UQA200',  // 중심상업지역
+  'CG': 'UQA210',  // 일반상업지역
+  'CN': 'UQA220',  // 근린상업지역
+  'CD': 'UQA230',  // 유통상업지역
+  'IE': 'UQA300',  // 전용공업지역
+  'IG': 'UQA310',  // 일반공업지역
+  'ISI': 'UQA320', // 준공업지역
+  'GC': 'UQA400',  // 보전녹지지역
+  'GP': 'UQA410',  // 생산녹지지역
+  'GN': 'UQA420',  // 자연녹지지역
+}
+
+// 시군구 코드 매핑 (서울시 구)
+const SIGUNGU_CODE_MAP: Record<string, string> = {
+  '강남구': '11680',
+  '강동구': '11740',
+  '강북구': '11305',
+  '강서구': '11500',
+  '관악구': '11620',
+  '광진구': '11215',
+  '구로구': '11530',
+  '금천구': '11545',
+  '노원구': '11350',
+  '도봉구': '11320',
+  '동대문구': '11230',
+  '동작구': '11590',
+  '마포구': '11440',
+  '서대문구': '11410',
+  '서초구': '11650',
+  '성동구': '11200',
+  '성북구': '11290',
+  '송파구': '11710',
+  '양천구': '11470',
+  '영등포구': '11560',
+  '용산구': '11170',
+  '은평구': '11380',
+  '종로구': '11110',
+  '중구': '11140',
+  '중랑구': '11260',
+}
+
+// 건축물 용도 매핑 (일반적인 건축물 유형)
+const BUILDING_TYPE_MAP: Record<string, string> = {
+  apartment: '공동주택',
+  officetel: '업무시설',
+  office: '업무시설',
+  retail: '판매시설',
+  neighborhood: '근린생활시설',
+  warehouse: '창고시설',
+  factory: '공장',
+  hotel: '숙박시설',
+  hospital: '의료시설',
+  school: '교육연구시설',
+  religious: '종교시설',
+  cultural: '문화및집회시설',
 }
 
 // ============================================
@@ -438,9 +539,246 @@ export class DataGoKrClient {
     }
   }
 
+  /**
+   * Check if a specific land use activity is permitted in a zone
+   * Uses arLandUseInfoService API
+   *
+   * @param zoneCode Internal zone code (e.g., 'R3G') or API ucode (e.g., 'UQA140')
+   * @param activityName Land use activity name in Korean (e.g., '공동주택')
+   * @param sigungu District name (e.g., '강남구') or code (e.g., '11680')
+   */
+  async checkLandUsePermission(
+    zoneCode: string,
+    activityName: string,
+    sigungu: string = '강남구'
+  ): Promise<LandUsePermissionResult> {
+    try {
+      // Convert internal code to API ucode if needed
+      const ucode = INTERNAL_TO_UCODE_MAP[zoneCode] || zoneCode
+
+      // Convert sigungu name to code if needed
+      const areaCd = SIGUNGU_CODE_MAP[sigungu] || sigungu
+
+      const url = this.buildArLandUseInfoUrl({
+        areaCd,
+        ucodeList: ucode,
+        landUseNm: activityName,
+      })
+
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `HTTP error: ${response.status}`,
+          source: 'DATA_GO_KR',
+        }
+      }
+
+      const text = await response.text()
+      const parsed = this.parseArLandUseInfoResponse(text)
+
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: parsed.error || '응답을 파싱할 수 없습니다.',
+          source: 'DATA_GO_KR',
+          rawResponse: text,
+        }
+      }
+
+      return {
+        success: true,
+        permitted: parsed.permitted,
+        permissionType: parsed.permissionType,
+        conditions: parsed.conditions,
+        legalBasis: parsed.legalBasis,
+        source: 'DATA_GO_KR',
+        rawResponse: text,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        source: 'DATA_GO_KR',
+      }
+    }
+  }
+
+  /**
+   * Get permissions for common building types in a zone
+   *
+   * @param zoneCode Internal zone code (e.g., 'R3G')
+   * @param sigungu District name (e.g., '강남구')
+   */
+  async getZonePermissions(
+    zoneCode: string,
+    sigungu: string = '강남구'
+  ): Promise<ZonePermissionsResult> {
+    const activities: LandUseActivityInfo[] = []
+    const buildingTypes = ['공동주택', '업무시설', '판매시설', '근린생활시설']
+
+    for (const activityName of buildingTypes) {
+      const result = await this.checkLandUsePermission(zoneCode, activityName, sigungu)
+
+      if (result.success) {
+        activities.push({
+          activityName,
+          permitted: result.permitted || false,
+          permissionType: result.permissionType || 'unknown',
+          conditions: result.conditions || [],
+          legalBasis: result.legalBasis,
+        })
+      }
+    }
+
+    const ucode = INTERNAL_TO_UCODE_MAP[zoneCode] || zoneCode
+    const zoneName = this.getZoneNameFromCode(zoneCode)
+
+    return {
+      success: true,
+      zoneName,
+      zoneCode: ucode,
+      activities,
+      source: 'DATA_GO_KR',
+    }
+  }
+
+  /**
+   * Convert building type to Korean activity name
+   */
+  getBuildingTypeActivityName(buildingType: string): string {
+    return BUILDING_TYPE_MAP[buildingType.toLowerCase()] || buildingType
+  }
+
   // ============================================
   // Private Helpers
   // ============================================
+
+  private buildArLandUseInfoUrl(params: {
+    areaCd: string
+    ucodeList: string
+    landUseNm: string
+  }): string {
+    const searchParams = new URLSearchParams({
+      serviceKey: this.serviceKey,
+      areaCd: params.areaCd,
+      ucodeList: params.ucodeList,
+      landUseNm: params.landUseNm,
+    })
+
+    return `${AR_LAND_USE_INFO_BASE}${AR_LAND_USE_INFO_ENDPOINT}?${searchParams.toString()}`
+  }
+
+  private parseArLandUseInfoResponse(xmlText: string): {
+    success: boolean
+    permitted?: boolean
+    permissionType?: 'allowed' | 'conditional' | 'prohibited' | 'unknown'
+    conditions?: string[]
+    legalBasis?: string
+    error?: string
+  } {
+    // Check for error response
+    if (xmlText.includes('<ERROR_CODE>') || xmlText.includes('SERVICE_ERROR')) {
+      const errorMatch = xmlText.match(/<ERROR_MSG>([^<]+)<\/ERROR_MSG>/)
+      const resultMsgMatch = xmlText.match(/<resultMsg>([^<]+)<\/resultMsg>/)
+      return {
+        success: false,
+        error: errorMatch?.[1] || resultMsgMatch?.[1] || 'API error',
+      }
+    }
+
+    // Check for result code
+    const resultCodeMatch = xmlText.match(/<resultCode>(\d+)<\/resultCode>/)
+    if (resultCodeMatch && resultCodeMatch[1] !== '00') {
+      const resultMsgMatch = xmlText.match(/<resultMsg>([^<]+)<\/resultMsg>/)
+      return {
+        success: false,
+        error: resultMsgMatch?.[1] || `Error code: ${resultCodeMatch[1]}`,
+      }
+    }
+
+    // Parse permission info
+    // Look for items in the response
+    const itemsMatch = xmlText.match(/<item>([\s\S]*?)<\/item>/g)
+    if (!itemsMatch || itemsMatch.length === 0) {
+      // No items means the activity might not be found or not applicable
+      return {
+        success: true,
+        permitted: false,
+        permissionType: 'unknown',
+        conditions: [],
+      }
+    }
+
+    // Parse the first item
+    const firstItem = itemsMatch[0]
+
+    // Extract permission type (행위가능여부)
+    const permissionMatch = firstItem.match(/<actPsbltDvsnNm>([^<]+)<\/actPsbltDvsnNm>/)
+    const permissionText = permissionMatch?.[1] || ''
+
+    let permitted = false
+    let permissionType: 'allowed' | 'conditional' | 'prohibited' | 'unknown' = 'unknown'
+
+    if (permissionText.includes('허용') || permissionText.includes('가능')) {
+      permitted = true
+      permissionType = 'allowed'
+    } else if (permissionText.includes('조건부') || permissionText.includes('제한적')) {
+      permitted = true
+      permissionType = 'conditional'
+    } else if (permissionText.includes('불허') || permissionText.includes('금지') || permissionText.includes('불가')) {
+      permitted = false
+      permissionType = 'prohibited'
+    }
+
+    // Extract conditions (행위제한내용)
+    const conditions: string[] = []
+    const restrictionMatch = firstItem.match(/<actRstrCn>([^<]+)<\/actRstrCn>/)
+    if (restrictionMatch?.[1]) {
+      conditions.push(restrictionMatch[1])
+    }
+
+    // Extract exception conditions (예외사항)
+    const exceptionMatch = firstItem.match(/<excptMatterCn>([^<]+)<\/excptMatterCn>/)
+    if (exceptionMatch?.[1]) {
+      conditions.push(`예외: ${exceptionMatch[1]}`)
+    }
+
+    // Extract legal basis (관련법령)
+    const legalMatch = firstItem.match(/<relatLawordNm>([^<]+)<\/relatLawordNm>/)
+    const legalBasis = legalMatch?.[1]
+
+    return {
+      success: true,
+      permitted,
+      permissionType,
+      conditions,
+      legalBasis,
+    }
+  }
+
+  private getZoneNameFromCode(code: string): string {
+    const nameMap: Record<string, string> = {
+      'R1E': '제1종전용주거지역',
+      'R2E': '제2종전용주거지역',
+      'R1G': '제1종일반주거지역',
+      'R2G': '제2종일반주거지역',
+      'R3G': '제3종일반주거지역',
+      'RSR': '준주거지역',
+      'CC': '중심상업지역',
+      'CG': '일반상업지역',
+      'CN': '근린상업지역',
+      'CD': '유통상업지역',
+      'IE': '전용공업지역',
+      'IG': '일반공업지역',
+      'ISI': '준공업지역',
+      'GC': '보전녹지지역',
+      'GP': '생산녹지지역',
+      'GN': '자연녹지지역',
+    }
+    return nameMap[code] || code
+  }
 
   private buildCadastralUrl(params: {
     request: string

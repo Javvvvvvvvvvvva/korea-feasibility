@@ -48,6 +48,12 @@ import {
   isDataGoKrAvailable,
 } from '../api'
 
+import type {
+  LandUsePermissionResult,
+  ZonePermissionsResult,
+  LandUseActivityInfo,
+} from '../api/dataGoKrClient'
+
 /**
  * Seoul District to typical zoning mapping
  * Based on predominant zoning in each district
@@ -576,6 +582,85 @@ export class SeoulCityAdapter implements ICityAdapter {
     // v1: No overlay detection
     // Future: Query 지구단위계획, 정비구역, etc. using _parcel
     return []
+  }
+
+  /**
+   * Check if a specific land use activity is permitted in a zone
+   * Uses arLandUseInfoService API from data.go.kr
+   *
+   * @param zoningCode Zoning code (e.g., 'R3G' or 'UQA140')
+   * @param activityName Activity name in Korean (e.g., '공동주택')
+   * @param district District name (e.g., '강남구')
+   */
+  async checkLandUsePermission(
+    zoningCode: string,
+    activityName: string,
+    district: string = '강남구'
+  ): Promise<LandUsePermissionResult> {
+    const client = getDataGoKrClient()
+    if (!client) {
+      return {
+        success: false,
+        error: 'data.go.kr API key not configured',
+        source: 'DATA_GO_KR',
+      }
+    }
+
+    return client.checkLandUsePermission(zoningCode, activityName, district)
+  }
+
+  /**
+   * Get permissions for common building types in a zone
+   * Useful for displaying what can be built in a specific zone
+   *
+   * @param zoningCode Zoning code (e.g., 'R3G')
+   * @param district District name (e.g., '강남구')
+   */
+  async getZonePermissions(
+    zoningCode: string,
+    district: string = '강남구'
+  ): Promise<ZonePermissionsResult> {
+    const client = getDataGoKrClient()
+    if (!client) {
+      return {
+        success: false,
+        error: 'data.go.kr API key not configured',
+        source: 'DATA_GO_KR',
+      }
+    }
+
+    return client.getZonePermissions(zoningCode, district)
+  }
+
+  /**
+   * Get permitted activities for a parcel based on its resolved zoning
+   */
+  async getParcelPermissions(parcel: KoreaParcel): Promise<{
+    zoningCode?: string
+    zoningName?: string
+    permissions: LandUseActivityInfo[]
+    error?: string
+  }> {
+    // First resolve zoning for the parcel
+    const zoningResult = await this.resolveZoning(parcel)
+
+    if (!zoningResult.success || !zoningResult.zoningCode) {
+      return {
+        permissions: [],
+        error: zoningResult.error || '용도지역을 확인할 수 없습니다.',
+      }
+    }
+
+    // Get permissions for this zone
+    const district = parcel.jibunAddress.sigungu || '강남구'
+    const permissionsResult = await this.getZonePermissions(zoningResult.zoningCode, district)
+
+    return {
+      zoningCode: zoningResult.zoningCode,
+      zoningName: zoningResult.zoningName,
+      permissions: permissionsResult.activities || [],
+      error: permissionsResult.error,
+    }
   }
 
   // ============================================
